@@ -17,3 +17,9 @@ The repl can be started using
 ```sh
 stack exec repl
 ```
+
+##Compilation
+
+```sh 
+stack exec compile -- examples/fibonacci.txt
+```
