@@ -1,11 +1,9 @@
 {-# LANGUAGE DeriveFunctor #-}
 module Types (List, (|>), Literal(..), Expr(..), Function(..), Operator(..), ArithmeticOperator(..), LogicalOperator(..), Line(..), RuntimeError(..)) where  
 
-import Data.Char (isAlpha, isDigit)
 import qualified Data.List as List 
 import Debug.Trace as Debug
 -- import Control.Monad.State.Lazy as State
-import Control.Monad.Trans.State.Lazy as State
 import Control.Monad
 import Control.Applicative
 
@@ -66,7 +64,7 @@ instance (Show typ) => Show (Expr typ) where
 
 
             Apply name argument -> 
-                "(" ++ show name ++ " " ++ show argument ++ ")"
+                "( " ++ show name ++ " (" ++ show argument ++ ") )"
 
             IfThenElse thenBlocks elseBlock -> 
                 let thens = 

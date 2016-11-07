@@ -6,6 +6,8 @@ import Control.Applicative ((<|>))
 import Text.Read (readEither, readMaybe)
 import Data.Char (isAlpha, isDigit)
 
+import Debug.Trace as Debug
+
 startsWith :: Eq a => List a -> List a -> Bool
 startsWith = List.isPrefixOf
 
@@ -95,14 +97,14 @@ parseLine tokens =
             in 
                 case remaining of 
                     (TokenAssignment:rightSide) ->
-                        parseB rightSide 
+                        topLevelParser rightSide 
                             |> fmap (Declaration . Function name . constructLambda arguments . fst)
 
 
                     _ -> 
                         Left $ ParseError "Left-hand side, but no assignment"
         _ -> 
-            case parseB tokens of 
+            case topLevelParser tokens of 
                 Left err -> Left err
                 Right (result, []) -> Right (Evaluation result)
                 Right (result, xs) -> Left . ParseError $ "could only parse " ++ show result ++ ", failed on tokens " ++ show xs ++ "."
@@ -112,10 +114,12 @@ parseLine tokens =
         extractName (TokenVar n) = n
         extractName _ = error "extractName: not a Tokenvar" 
 
+topLevelParser = parseB
+
 
 parseB :: List Token -> Either RuntimeError (Expr Literal, List Token)
 parseB ts = do 
-    (acc, rest) <- parseL ts
+    (acc, rest) <- parseE ts
     parseB' acc rest
 
 
@@ -123,19 +127,11 @@ parseB' :: Expr Literal -> List Token -> Either RuntimeError (Expr Literal, List
 parseB' leftArgument tokens =
     case tokens of 
         (TokenOperator '=':ts) -> do
-            (acc, rest) <- parseT ts 
+            (acc, rest) <- parseE ts 
             parseE' (Builtin (Logical Equals) leftArgument acc) rest
 
         _  -> 
             Right ( leftArgument, tokens ) 
-
-{-| Parse a Lambda -} 
-parseL :: List Token -> Either RuntimeError (Expr Literal, List Token)
-parseL ts =
-    case ts of 
-        (TokenVar v:ts) -> uncurry parseT' (parseA (Var v) ts)
-        _ -> parseE ts
-
 
 
 {-| Parse + and - -} 
@@ -163,26 +159,35 @@ parseE' leftArgument tokens =
 {-| Parse *, / and % -} 
 parseT :: List Token -> Either RuntimeError (Expr Literal, List Token) 
 parseT ts = do 
-    (acc, rest) <- parseF ts
+    (acc, rest) <- parseL ts
     parseT' acc rest
 
 parseT' :: Expr Literal -> List Token -> Either RuntimeError (Expr Literal, List Token)
 parseT' leftArgument tokens = 
     case tokens of 
         (TokenOperator '*':ts) -> do
-            ( acc, rest ) <- parseF ts 
+            ( acc, rest ) <- parseL ts 
             parseT' (Builtin (Arithmetic Multiply) leftArgument acc) rest
 
         (TokenOperator '/':ts) -> do
-            ( acc, rest ) <- parseF ts 
+            ( acc, rest ) <- parseL ts 
             parseT' (Builtin (Arithmetic Divide) leftArgument acc) rest
 
         (TokenOperator '%':ts) -> do
-            ( acc, rest ) <- parseF ts 
+            ( acc, rest ) <- parseL ts 
             parseT' (Builtin (Arithmetic Modulo) leftArgument acc) rest
 
         _ -> 
             Right (leftArgument, tokens)
+
+
+
+{-| Parse a Lambda -} 
+parseL :: List Token -> Either RuntimeError (Expr Literal, List Token)
+parseL ts =
+    case ts of 
+        (TokenVar v:ts) -> uncurry parseB' (parseA (Var v) ts)
+        _ -> parseF ts
 
 parseLiteral str = 
     (Boolean <$> readMaybe str) <|> (IntNum <$> readMaybe str)
@@ -203,20 +208,32 @@ parseF tokens =
 
         (TokenKeyword If:ts) -> do 
             ( condition, tokens1 ) <- parseB ts
+            case tokens1 of 
+                (TokenKeyword Then:rest1) -> do 
+                    ( thenBranch, rest2 ) <- parseB rest1
+                    case rest2 of 
+                        (TokenKeyword Else:rest3) -> do 
+                            ( elseBranch, rest4 ) <- parseB rest3
+                            parseB' (IfThenElse [ (condition, thenBranch) ] elseBranch) rest4
+                        _ -> 
+                            Left $ ParseError "If-then-else with missing else-clause"
+                _ -> 
+                    Left $ ParseError "If-then-else with missing then-clause"
+                        
+                    
+                
+            {-
             guardE "'if' not followed be 'then'" (head tokens1 == TokenKeyword Then)
-            ( thenBranch, tokens2 ) <- parseE tokens1
+            ( thenBranch, tokens2 ) <- parseB tokens1
             guardE "'then' not followed by 'else'" (head tokens2 == TokenKeyword Else)
-            ( elseBranch, tokens3 ) <- parseE tokens2
+            ( elseBranch, tokens3 ) <- parseB tokens2
             parseB' (IfThenElse [ (condition, thenBranch) ] elseBranch) tokens3
-
-        (TokenKeyword Then:ts) -> parseF ts
-        (TokenKeyword Else:ts) -> parseF ts 
+            -} 
 
         (TokenOpenParen:ts) -> do
             ( expr, tokens' ) <- parseB ts 
             case tokens' of 
-                -- should this be parseB'? 
-                (TokenClosedParen:rest) -> parseE' expr rest 
+                (TokenClosedParen:rest) -> parseB' expr rest 
 
                 _ -> Left $ ParseError "missing right parenthesis"
 
@@ -229,6 +246,9 @@ parseA :: Expr Literal -> List Token -> (Expr Literal, List Token)
 parseA enclosing tokens = 
     case parseF tokens of 
         Left _ -> ( enclosing, tokens ) 
+        
+        Right ( argument, [] ) -> 
+            ( Apply enclosing argument, [] )  
 
         Right ( argument, remaining ) -> 
             parseA (Apply enclosing argument) remaining
