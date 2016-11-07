@@ -21,5 +21,6 @@ stack exec repl
 ##Compilation
 
 ```sh 
-stack exec compile -- examples/fibonacci.txt
+# the '--' makes the argument go to the executed program instead of 'stack'
+stack exec interpreter -- examples/fibonacci.txt
 ```
