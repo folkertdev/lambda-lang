@@ -1,10 +1,12 @@
-module Evaluate where 
+module Evaluate (evaluate) where 
 
 import Types
 
 import Data.Map as Map
 import Data.List as List
 
+
+{-| Apply a function over all variable names, used for substitution -} 
 mapVars :: (String -> Expr a) -> Expr a -> Expr a
 mapVars f expr = 
     case expr of 
@@ -32,46 +34,43 @@ substitute name replacement =
     mapVars (\var -> if var == name then replacement else Var var) 
 
 
-apply :: Map String (Expr a) -> Expr a -> Expr a
+apply :: Map String (Expr a) -> Expr a -> Either RuntimeError (Expr a)
 apply bindings expr = 
     case expr of 
         Apply (Var f) x ->
             case Map.lookup f bindings of 
                 Nothing -> 
-                    error $ "function '" ++ show f ++ "' not defined"
+                    Left . VariableNotFound $ "Function '" ++ show f ++ "' is not defined"
 
                 Just (Lambda argumentName body) ->
-                    substitute argumentName x body
+                    Right $ substitute argumentName x body
 
         Apply (Lambda varName body) argument ->
             apply bindings (substitute varName argument body)
 
-        Apply (Apply f x) y -> 
-            let 
-                function = apply bindings (Apply f x) 
-            in
-                apply bindings (Apply function y)
+        Apply (Apply f x) y -> do
+            function <- apply bindings (Apply f x) 
+            apply bindings (Apply function y)
 
         _ -> 
-            expr 
+            Right expr 
 
 
-evaluate :: Map String (Expr Literal) -> Expr Literal -> Expr Literal
+evaluate :: Map String (Expr Literal) -> Expr Literal -> Either RuntimeError (Expr Literal)
 evaluate bindings expr =
     case expr of 
-        Lit i -> return (Lit i)
+        Lit i -> Right (Lit i)
 
         Var v ->
             case Map.lookup v bindings of  
-                Nothing -> error $ "NameError: variable '" ++ v ++ "' not defined"
+                Nothing -> 
+                    Left . VariableNotFound $ "Variable '" ++ show v ++ "' is not defined." 
                 Just expr -> 
                     evaluate bindings expr
 
-        Apply f x ->
-            let 
-                substituted = apply bindings (Apply f x) 
-            in 
-                evaluate bindings substituted 
+        Apply f x -> do
+            substituted <- apply bindings (Apply f x) 
+            evaluate bindings substituted 
 
         Builtin (Arithmetic operator) arg1 arg2 -> 
             let function = 
@@ -82,52 +81,59 @@ evaluate bindings expr =
                         Divide   -> div
                         Modulo   -> mod
 
-                arguments =  (evaluate bindings arg1, evaluate bindings arg2)
-            in
-                case arguments of 
+            in do
+                leftArg <- evaluate bindings arg1
+                rightArg <- evaluate bindings arg2
+                case (leftArg, rightArg) of 
                     (Lit (IntNum x), Lit (IntNum y)) -> 
-                        Lit . IntNum $ function x y
+                        Right . Lit . IntNum $ function x y
 
-                    _ -> 
-                        error $ "TypeError: Expected (IntNum, IntNum), got " ++ show arguments
+                    (Lit (IntNum _), second) -> 
+                        Left . TypeError $ "Expected IntNum, got " ++ show second ++ " in the second argument of '" ++ show operator 
+
+                    (first, _) -> 
+                        Left . TypeError $ "Expected IntNum, got " ++ show first  ++ " in the second argument of '" ++ show operator 
 
         Builtin (Logical operator) arg1 arg2 -> 
-            let function = 
+            let function :: Eq a => a -> a -> Bool 
+                function = 
                     case operator of 
                         Equals -> (==)
+            in do
+                leftArg <- evaluate bindings arg1
+                rightArg <- evaluate bindings arg2
+                case (leftArg, rightArg) of 
+                    (Lit (IntNum x), Lit (IntNum y)) -> 
+                        Right . Lit . Boolean $ function x y
 
-                arguments = ( evaluate bindings arg1, evaluate bindings arg2)
-            in 
-                case arguments of 
-                    (Lit x, Lit y) -> 
-                        Lit . Boolean $ function x y
+                    (Lit (Boolean x), Lit (Boolean y)) -> 
+                        Right . Lit . Boolean $ function x y
 
                     _ -> 
-                        error $ "TypeError: Expected (IntNum, IntNum), got " ++ show arguments
+                        Left . TypeError $ "The arguments for " ++ show operator ++ " are of different types."
 
         IfThenElse thenBlocks elseBlock -> 
             case thenBlocks of 
                 [] -> evaluate bindings elseBlock
-                ((cond, block):ts) ->
-                    let 
-                        condition = evaluate bindings cond
-                    in 
-                        case condition of 
-                            Lit (Boolean True) -> 
-                                evaluate bindings block
+                ((cond, block):ts) -> do 
+                    condition <- evaluate bindings cond
+                    case condition of 
+                        Lit (Boolean True) -> 
+                            evaluate bindings block
 
-                            Lit (Boolean False) -> 
-                                evaluate bindings (IfThenElse ts elseBlock)
+                        Lit (Boolean False) -> 
+                            evaluate bindings (IfThenElse ts elseBlock)
 
-                            _ -> 
-                                error $ "TypeError: Expected Boolean, got " ++ show condition
+                        _ -> 
+                            Left . TypeError $ "if-then-else: Expected Boolean, got " ++ show condition 
 
 
                     
                     
 
         _ -> 
-            -- return . Lit $ Error ("cannot evaluate"++ show expr)
-            error ("ValueError: cannot evaluate"++ show expr)
+            Left . TypeError $ "cannot evaluate" ++ show expr
      
 
+mapBoth :: (a -> b) -> (a, a) -> (b, b)
+mapBoth f (a, b) = (f a, f b) 

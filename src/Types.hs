@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
-module Types (List, (|>), Literal(..), Expr(..), Function(..), Operator(..), ArithmeticOperator(..), LogicalOperator(..)) where  
+module Types (List, (|>), Literal(..), Expr(..), Function(..), Operator(..), ArithmeticOperator(..), LogicalOperator(..), Line(..), RuntimeError(..)) where  
 
 import Data.Char (isAlpha, isDigit)
 import qualified Data.List as List 
@@ -9,18 +9,24 @@ import Control.Monad.Trans.State.Lazy as State
 import Control.Monad
 import Control.Applicative
 
-import Text.Read (readEither, readMaybe)
 
 import Data.Map as Map
 
-startsWith :: Eq a => List a -> List a -> Bool
-startsWith = List.isPrefixOf
 
 type List a = [a]
 
 infixl 0 |>
 (|>) :: a -> (a -> b) -> b
 x |> f = f x
+
+
+data Line = Evaluation (Expr Literal) | Declaration (Function Literal) deriving (Show)
+
+data RuntimeError 
+    = ParseError String
+    | VariableNotFound String
+    | TypeError String
+    deriving (Show, Eq) 
 
 data Literal 
     = IntNum Integer
@@ -43,7 +49,6 @@ data Expr typ
 data Function typ = Function String (Expr typ) deriving (Show)
 
 
-data Line = Evaluation (Expr Literal) | Declaration (Function Literal) deriving (Show)
 
 
 instance (Show typ) => Show (Expr typ) where 

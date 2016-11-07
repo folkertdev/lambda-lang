@@ -1,4 +1,14 @@
-module Parser where (parse)
+module Parser (parse) where 
+
+import Types
+import Data.List as List
+import Control.Applicative ((<|>))
+import Text.Read (readEither, readMaybe)
+import Data.Char (isAlpha, isDigit)
+
+startsWith :: Eq a => List a -> List a -> Bool
+startsWith = List.isPrefixOf
+
 
 
 {-| A custom Token type 
@@ -36,7 +46,7 @@ tokenizeLine chars
     | otherwise = tokenize chars 
 
 
-tokenize :: String -> Either String (List Token)
+tokenize :: String -> Either RuntimeError (List Token)
 tokenize [] = Right [] 
 tokenize chars@(c:cs)
     | c `elem` "+-*/%" = (:) (TokenOperator c) <$> tokenize cs
@@ -60,10 +70,10 @@ tokenize chars@(c:cs)
             |> mapFst TokenVar
             |> mapSnd tokenize
             |> (\(x,xs) -> (:) x <$> xs)
-    | otherwise = Left $ "unexpected input token: " ++ show chars
+    | otherwise = Left . ParseError $ "unexpected input token: " ++ show chars
 
 
-parse :: String -> Either String Line 
+parse :: String -> Either RuntimeError Line 
 parse str = do 
     tokens <- tokenizeLine str
     parseLine tokens 
@@ -71,7 +81,7 @@ parse str = do
         
 
 
-parseLine :: List Token -> Either String Line
+parseLine :: List Token -> Either RuntimeError Line
 parseLine tokens = 
     case tokens of 
         (TokenKeyword Let : TokenVar name: rest) -> 
@@ -86,14 +96,16 @@ parseLine tokens =
                 case remaining of 
                     (TokenAssignment:rightSide) ->
                         parseB rightSide 
-                            |> fmap fst 
-                            |> fmap (Declaration . Function name . constructLambda arguments)
+                            |> fmap (Declaration . Function name . constructLambda arguments . fst)
 
 
                     _ -> 
-                        Left "Left-hand side, but no assignment"
+                        Left $ ParseError "Left-hand side, but no assignment"
         _ -> 
-            Evaluation . fst <$> parseB tokens
+            case parseB tokens of 
+                Left err -> Left err
+                Right (result, []) -> Right (Evaluation result)
+                Right (result, xs) -> Left . ParseError $ "could only parse " ++ show result ++ ", failed on tokens " ++ show xs ++ "."
     
 
   where constructLambda arguments body = List.foldr (Lambda . extractName) body arguments
@@ -101,13 +113,13 @@ parseLine tokens =
         extractName _ = error "extractName: not a Tokenvar" 
 
 
-parseB :: List Token -> Either String (Expr Literal, List Token)
+parseB :: List Token -> Either RuntimeError (Expr Literal, List Token)
 parseB ts = do 
     (acc, rest) <- parseL ts
     parseB' acc rest
 
 
-parseB' :: Expr Literal -> List Token -> Either String (Expr Literal, List Token)
+parseB' :: Expr Literal -> List Token -> Either RuntimeError (Expr Literal, List Token)
 parseB' leftArgument tokens =
     case tokens of 
         (TokenOperator '=':ts) -> do
@@ -117,8 +129,8 @@ parseB' leftArgument tokens =
         _  -> 
             Right ( leftArgument, tokens ) 
 
-
-parseL :: List Token -> Either String (Expr Literal, List Token)
+{-| Parse a Lambda -} 
+parseL :: List Token -> Either RuntimeError (Expr Literal, List Token)
 parseL ts =
     case ts of 
         (TokenVar v:ts) -> uncurry parseT' (parseA (Var v) ts)
@@ -126,13 +138,14 @@ parseL ts =
 
 
 
-parseE :: List Token -> Either String (Expr Literal, List Token) 
+{-| Parse + and - -} 
+parseE :: List Token -> Either RuntimeError (Expr Literal, List Token) 
 parseE ts = do 
     (acc, rest) <- parseT ts 
     parseE' acc rest
 
 
-parseE' :: Expr Literal -> List Token -> Either String (Expr Literal, List Token)
+parseE' :: Expr Literal -> List Token -> Either RuntimeError (Expr Literal, List Token)
 parseE' leftArgument tokens =
     case tokens of 
         (TokenOperator '+':ts) -> do
@@ -147,12 +160,13 @@ parseE' leftArgument tokens =
             Right ( leftArgument, tokens ) 
 
 
-parseT :: List Token -> Either String (Expr Literal, List Token) 
+{-| Parse *, / and % -} 
+parseT :: List Token -> Either RuntimeError (Expr Literal, List Token) 
 parseT ts = do 
     (acc, rest) <- parseF ts
     parseT' acc rest
 
-parseT' :: Expr Literal -> List Token -> Either String (Expr Literal, List Token)
+parseT' :: Expr Literal -> List Token -> Either RuntimeError (Expr Literal, List Token)
 parseT' leftArgument tokens = 
     case tokens of 
         (TokenOperator '*':ts) -> do
@@ -174,11 +188,12 @@ parseLiteral str =
     (Boolean <$> readMaybe str) <|> (IntNum <$> readMaybe str)
 
 
-guardE :: err -> Bool -> Either err ()
-guardE err False = Left err
+
+guardE :: String -> Bool -> Either RuntimeError ()
+guardE err False = Left (ParseError err)
 guardE _   True  = Right ()
 
-parseF :: List Token -> Either String (Expr Literal, List Token)
+parseF :: List Token -> Either RuntimeError (Expr Literal, List Token)
 parseF tokens = 
     case tokens of 
         (TokenVal  n:ts) -> Right (Lit (IntNum  n), ts)
@@ -203,9 +218,9 @@ parseF tokens =
                 -- should this be parseB'? 
                 (TokenClosedParen:rest) -> parseE' expr rest 
 
-                _ -> Left "missing right parenthesis"
+                _ -> Left $ ParseError "missing right parenthesis"
 
-        _ -> Left $ "unexpected token " ++ show tokens
+        _ -> Left . ParseError $ "unexpected token " ++ show tokens
 
 
 

@@ -1,28 +1,39 @@
 import Types 
+import Parser
+import Evaluate
+
+import Data.Map as Map
+import Control.Monad (unless)
+
+
+main :: IO () 
+main = do 
+    putStrLn "The LambdaLang REPL (type \"quit\" to quit)"
+    repl Map.empty
 
 {-| Read Eval Print Loop
 -} 
-main :: Map String (Expr Literal) -> IO ()  
-main bindings = do 
+repl :: Map String (Expr Literal) -> IO ()  
+repl bindings = do 
     putStr "> "
     input <- getLine 
 
-    let expr' = toExpr input 
+    let expr' = Parser.parse input 
         
     unless (input == "quit") $ 
         case expr' of 
             Left err -> do 
                 print err
-                main bindings 
+                repl bindings 
 
             Right line -> 
                 case line of 
                     Declaration (Function name body) -> 
-                        main (Map.insert name body bindings)
+                        repl (Map.insert name body bindings)
 
                     Evaluation expr -> do 
-                        print $ flip State.evalState bindings $ evaluate expr 
-                        main bindings
+                        print $ evaluate bindings expr 
+                        repl bindings
 
 
 
