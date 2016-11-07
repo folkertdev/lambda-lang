@@ -1,3 +1,7 @@
+#Lambda Lang 
+
+A very basic Haskell-like language 
+
 
 ##Building
 
