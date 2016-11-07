@@ -3,7 +3,7 @@
 
 This projects uses [stack](https://docs.haskellstack.org/en/stable/README/). 
 
-Installalling and building is as simple as 
+After installing stack, fetching the required packages and building is as simple as 
 
 ```sh
 stack setup
