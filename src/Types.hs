@@ -29,7 +29,6 @@ data RuntimeError
 data Literal 
     = IntNum Integer
     | Boolean Bool
-    | Error String
     deriving (Show, Eq)
 
 data Expr typ
