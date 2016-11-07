@@ -18,7 +18,6 @@ library
   exposed-modules:     Types, Evaluate, Parser 
   build-depends:       base >= 4.7 && < 5
                         , containers
-                        , transformers
   default-language:    Haskell2010
 
 
